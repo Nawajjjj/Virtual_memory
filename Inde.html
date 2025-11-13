@@ -1,0 +1,741 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Virtual Memory Optimization Challenge</title>
+<style>
+  :root{
+    --bg:#0b1020; --panel:#121a2e; --ink:#eaf1ff; --muted:#a8b2d1; --accent:#7c91ff; --accent-2:#41d6c3; --bad:#ff6b6b; --good:#2ee58a; --warn:#ffb020;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,"Apple Color Emoji","Segoe UI Emoji";background:linear-gradient(180deg,#0b1020,#0a0f1c 60%);color:var(--ink)}
+  header{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid #1e2744;background:rgba(10,15,28,.7);backdrop-filter:blur(6px);position:sticky;top:0;z-index:9}
+  header h1{font-size:18px;margin:0;letter-spacing:.3px}
+  header .badge{font-size:12px;color:#0b1020;background:linear-gradient(90deg,var(--accent),var(--accent-2));padding:4px 8px;border-radius:999px}
+  .wrap{display:grid;grid-template-columns:320px 1fr;gap:16px;padding:16px;max-width:1400px;margin:0 auto}
+  .card{background:var(--panel);border:1px solid #1d2440;border-radius:16px;box-shadow:0 8px 30px rgba(0,0,0,.25)}
+  .card h2{font-size:14px;font-weight:600;letter-spacing:.2px;color:var(--muted);margin:0;padding:12px 14px;border-bottom:1px solid #1d2440}
+  .controls{padding:14px;display:grid;gap:12px}
+  .controls label{display:grid;gap:6px;font-size:12px;color:var(--muted)}
+  .controls input[type=text],
+  .controls input[type=number],
+  .controls select, .controls textarea{
+    width:100%;background:#0f162c;border:1px solid #223058;color:var(--ink);padding:10px;border-radius:10px;font-size:13px;outline:none
+  }
+  .controls textarea{min-height:70px;resize:vertical}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .btnbar{display:flex;gap:8px;flex-wrap:wrap}
+  button{background:#151f3b;border:1px solid #243462;color:var(--ink);padding:9px 12px;border-radius:10px;font-size:13px;cursor:pointer}
+  button.primary{background:linear-gradient(90deg,var(--accent),#5685ff);border-color:#5a7dff}
+  button.ghost{background:transparent;border-color:#2a375f}
+  button.success{background:linear-gradient(90deg,#25d178,#3be79b);border-color:#27d983}
+  button.warn{background:linear-gradient(90deg,#ffb020,#ff8b64);border-color:#ff8b64;color:#0b1020}
+  button:disabled{opacity:.5;cursor:not-allowed}
+
+  .section{padding:14px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+  .metric{background:#0d1428;border:1px dashed #2a375f;border-radius:12px;padding:10px;display:grid;gap:6px;min-height:84px}
+  .metric .k{font-size:12px;color:var(--muted)}
+  .metric .v{font-size:22px;font-weight:700}
+  .pill{display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border-radius:999px;background:#0f1a34;border:1px solid #25345f;color:var(--muted);font-size:12px}
+
+  /* Paging viz */
+  #pagingBoard{padding:16px;display:grid;gap:12px}
+  .frames{display:grid;grid-template-columns:repeat(auto-fit,minmax(58px,1fr));gap:8px}
+  .frame{background:#0d1428;border:1px solid #2a375f;border-radius:10px;min-height:56px;display:grid;place-items:center;font-weight:700;font-size:18px}
+  .frame.hit{outline:2px solid var(--good)}
+  .frame.fault{outline:2px solid var(--bad)}
+  .timeline{display:flex;gap:6px;flex-wrap:wrap}
+  .tick{padding:6px 8px;border-radius:8px;border:1px solid #2a375f;background:#0e152a;font-size:12px}
+  .tick.hit{border-color:#215b48;box-shadow:0 0 0 2px rgba(46,229,138,.18) inset}
+  .tick.fault{border-color:#5b1f29;box-shadow:0 0 0 2px rgba(255,107,107,.18) inset}
+  .tick .sub{display:block;font-size:10px;color:var(--muted)}
+
+  /* Segmentation viz */
+  #segBoard{display:grid;grid-template-columns:260px 1fr;gap:14px;padding:16px}
+  .memBar{height:560px;background:#0e1630;border:1px solid #2a375f;border-radius:12px;position:relative;overflow:hidden}
+  .block{position:absolute;left:6px;right:6px;border-radius:8px;padding:6px;font-size:12px;display:flex;align-items:center;justify-content:space-between}
+  .block.free{background:rgba(124,145,255,.12);border:1px dashed #4d5fcc;color:#c9d1ff}
+  .block.used{background:rgba(65,214,195,.15);border:1px solid #41d6c3;color:#d5fff8}
+  .legend{display:flex;gap:8px;flex-wrap:wrap}
+
+  /* Footer */
+  footer{padding:12px;color:var(--muted);text-align:center;border-top:1px solid #1e2744}
+  code.inline{background:#0d1326;padding:2px 6px;border:1px solid #223058;border-radius:6px}
+
+  .small{font-size:12px;color:var(--muted)}
+  /* ===== Responsive improvements (paste at end of your CSS) ===== */
+
+/* Make the main two-column layout collapse to a single column on small screens */
+@media (max-width: 900px) {
+  .wrap {
+    grid-template-columns: 1fr; /* stack panels vertically */
+    padding: 12px;
+  }
+  .card { margin-bottom: 12px; } /* spacing between stacked cards */
+  /* Make controls more compact */
+  .controls { padding: 12px; gap:10px; }
+  .row { grid-template-columns: 1fr; } /* stack rows */
+  .btnbar { justify-content: flex-start; flex-wrap:wrap; gap:10px; }
+  .frames { grid-template-columns: repeat(auto-fit,minmax(48px,1fr)); gap:6px; }
+  .metric .v { font-size:18px; }
+  .metric { min-height:72px; padding:8px; }
+  #segBoard { grid-template-columns: 1fr; } /* stack seg blocks and mem bar */
+  .memBar{ height:45vh; } /* use viewport height rather than fixed */
+}
+
+/* Tight mobile adjustments */
+@media (max-width: 480px) {
+  body { font-size: 14px; }
+  header h1 { font-size:16px; }
+  .controls input, .controls textarea, .controls select { font-size:14px; padding:10px; }
+  button { padding:10px 12px; font-size:14px; border-radius:12px; }
+  .frames { grid-template-columns: repeat(auto-fit,minmax(42px,1fr)); gap:6px; }
+  .frame { min-height:48px; font-size:16px; }
+  .memBar { height:55vh; } /* give more vertical space for memory view on phones */
+  .timeline { gap:6px; overflow-x:auto; -webkit-overflow-scrolling:touch; padding-bottom:6px; }
+  #timeline .tick { white-space:nowrap; flex: 0 0 auto; }
+  .block { padding:6px 8px; font-size:12px; }
+}
+
+/* Optional: allow horizontal scrolling for very wide timelines without breaking layout */
+.timeline { overflow-x:auto; -webkit-overflow-scrolling:touch; }
+
+/* Make clickable blocks easier to tap on small screens */
+@media (max-width: 900px) {
+  .btnbar button, .metric { min-height:44px; display:flex; align-items:center; justify-content:center; }
+}
+
+</style>
+</head>
+<body>
+  <header>
+    <h1>Virtual Memory Optimization Challenge <span class="badge">Paging + Segmentation Lab</span></h1>
+    <div class="pill" role="status" aria-live="polite">Interactive • Client-side • No backend</div>
+    <!-- <input id="frames" type="number" inputmode="numeric" pattern="[0-9]*" ... /> -->
+
+  </header>
+
+  <div class="wrap">
+    <!-- Controls -->
+    <div class="card">
+      <h2>Controls</h2>
+      <div class="controls">
+        <label>Reference String (space/comma separated)
+          <textarea id="refString" placeholder="e.g. 7,0,1,2,0,3,0,4,2,3,0,3,2" aria-label="Reference string"></textarea>
+        </label>
+        <div class="row">
+          <label>Frames
+            <input id="frames" type="number" min="1" max="50" value="3" aria-label="Number of frames" />
+          </label>
+          <label>Algorithm
+            <select id="algo" aria-label="Replacement algorithm">
+              <option value="LRU">LRU (Least Recently Used)</option>
+              <option value="OPT">Optimal (Belady)</option>
+              <option value="FIFO">FIFO</option>
+              <option value="CLOCK">Clock (Second-Chance)</option>
+              <option value="LFU">LFU (Least Frequently Used)</option>
+            </select>
+          </label>
+        </div>
+        <div class="row">
+          <label>Step Delay (ms)
+            <input id="delay" type="number" min="0" value="300" aria-label="Step delay in milliseconds" />
+          </label>
+          <label>Preload (Demand Paging)
+            <select id="preload" aria-label="Preload pages">
+              <option value="0">0 pages (pure demand)</option>
+              <option value="1">1</option>
+              <option value="2">2</option>
+              <option value="3">3</option>
+            </select>
+          </label>
+        </div>
+        <div class="btnbar" role="group" aria-label="Simulation controls">
+          <button class="primary" id="runBtn" aria-label="Run simulation">▶ Run</button>
+          <button class="ghost" id="stepBtn" aria-label="Step one event">⏭ Step</button>
+          <button class="ghost" id="pauseBtn" aria-label="Pause simulation">⏸ Pause</button>
+          <button class="ghost" id="backBtn" aria-label="Step back">↶ Back</button>
+          <button class="warn" id="resetBtn" aria-label="Reset simulation">⟲ Reset</button>
+          <button class="success" id="compareBtn" aria-label="Compare algorithms">⇄ Compare Algorithms</button>
+          <button class="ghost" id="exportBtn" aria-label="Export CSV">⬇ Export CSV</button>
+        </div>
+        <div class="small">Tip: leave Reference String empty and press <b>Run</b> to auto-generate a random workload. Keyboard: <b>Space</b>=Step, <b>Ctrl/Cmd+R</b>=Run</div>
+      </div>
+    </div>
+
+    <!-- Right side visualizations -->
+    <div class="card">
+      <h2>Paging Simulator</h2>
+      <div class="section" id="pagingIntro">
+        Visualize page frames, hits/misses, and page faults in real time. Compare <code class="inline">LRU</code>, <code class="inline">Optimal</code>, and <code class="inline">FIFO</code>.
+      </div>
+      <div id="pagingBoard">
+        <div class="grid">
+          <div class="metric"><div class="k">Total References</div><div class="v" id="mRefs">0</div><div class="k">Current t</div><div class="v" id="mT">0</div></div>
+          <div class="metric"><div class="k">Page Faults</div><div class="v" id="mFaults">0</div><div class="k">Fault Rate</div><div class="v" id="mFaultRate">0%</div></div>
+          <div class="metric"><div class="k">Hits</div><div class="v" id="mHits">0</div><div class="k">Hit Ratio</div><div class="v" id="mHitRate">0%</div></div>
+        </div>
+        <div>
+          <div class="pill">Frames</div>
+          <div class="frames" id="framesView" role="list" aria-label="Frames view"></div>
+        </div>
+        <div>
+          <div class="pill">Timeline</div>
+          <div class="timeline" id="timeline" aria-live="polite"></div>
+          <div class="section" id="compareOut" style="padding-left:0"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Segmentation Panel -->
+  <div class="wrap">
+    <div class="card">
+      <h2>Segmentation & Fragmentation</h2>
+      <div class="controls">
+        <div class="row">
+          <label>Total Memory (KB)
+            <input id="memSize" type="number" min="64" value="1024" aria-label="Total memory in KB" />
+          </label>
+          <label>Allocation Policy
+            <select id="policy" aria-label="Allocation policy">
+              <option value="first">First-Fit</option>
+              <option value="best">Best-Fit</option>
+              <option value="worst">Worst-Fit</option>
+            </select>
+          </label>
+        </div>
+        <label>Segments (KB, one per line, use <code class="inline">name:size</code>)
+          <textarea id="segments" placeholder="code:140\nstack:64\nheap:220\ndata:96" aria-label="Segments to allocate"></textarea>
+        </label>
+        <div class="btnbar">
+          <button class="primary" id="allocBtn">Allocate</button>
+          <button class="ghost" id="freeBtn">Free Selected</button>
+          <button class="warn" id="clearSegBtn">Clear</button>
+        </div>
+        <div class="legend">
+          <span class="pill">External Fragmentation: <b id="extFrag">0</b> KB</span>
+          <span class="pill">Largest Free Block: <b id="largestFree">0</b> KB</span>
+          <span class="pill">Allocated: <b id="allocSum">0</b> KB</span>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Memory Map</h2>
+      <div id="segBoard" class="section">
+        <div>
+          <div class="pill">Blocks</div>
+          <div id="segList"></div>
+        </div>
+        <div>
+          <div class="pill">Physical Memory</div>
+          <div class="memBar" id="memBar" aria-label="Physical memory map"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    Built for teaching OS concepts: paging (LRU/OPT/FIFO), demand paging, page faults; and segmentation with First/Best/Worst-Fit & fragmentation metrics. © 2025
+  </footer>
+
+<script>
+/***********************
+ * Utilities
+ ***********************/
+const $ = sel => document.querySelector(sel);
+const el = (tag, cls, text) => { const n = document.createElement(tag); if(cls) n.className = cls; if(text!==undefined) n.textContent = text; return n; };
+const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
+const pct = (n, d) => d===0 ? 0 : Math.round((n/d)*100);
+
+/***********************
+ * Paging Simulator
+ ***********************/
+const state = {
+  refs: [],
+  frames: 3,
+  algo: 'LRU',
+  preload: 0,
+  t: 0,
+  arr: [],
+  pageFaults: 0,
+  hits: 0,
+  timer: null,
+  paused: true,
+  events: [] // {t,page,hit,frames:[...]}
+};
+
+function parseRefs(input){
+  const parts = (input||'').split(/[\s,]+/).filter(Boolean);
+  if(!parts.length){
+    // Auto-generate workload 0..9 random length 20-29
+    const len = 20 + Math.floor(Math.random()*10);
+    return Array.from({length:len},()=> Math.floor(Math.random()*10));
+  }
+  return parts.map(x=>parseInt(x,10)).filter(n=>!Number.isNaN(n));
+}
+
+function resetPaging(){
+  state.t = 0; state.pageFaults = 0; state.hits = 0; state.paused = true; clearInterval(state.timer);
+  state.arr = Array(state.frames).fill(null);
+  state.events = [];
+  $('#framesView').innerHTML = '';
+  for(let i=0;i<state.frames;i++){
+    const f = el('div','frame'); f.dataset.idx=i; f.textContent = '—';
+    // ensure no old classes
+    f.classList.remove('hit','fault');
+    $('#framesView').appendChild(f);
+  }
+  $('#timeline').innerHTML = '';
+  $('#compareOut').innerHTML = '';
+  // reset algorithm bookkeeping
+  stepPaging.order = state.arr.map((_,i)=>i);
+  stepPaging.history = new Map();
+  stepPaging.freq = new Map();
+  stepPaging.clockBits = Array(state.frames).fill(0);
+  stepPaging.clockPtr = 0;
+  stepPaging.optCache = new Map(); // cache for OPT lookahead
+  updateMetrics();
+}
+
+function updateMetrics(){
+  $('#mRefs').textContent = state.refs.length;
+  $('#mT').textContent = state.t;
+  $('#mFaults').textContent = state.pageFaults;
+  const hits = state.hits; const refs = state.t; // so far
+  $('#mHits').textContent = hits;
+  $('#mFaultRate').textContent = `${pct(state.pageFaults, Math.max(1, state.t))}%`;
+  $('#mHitRate').textContent = `${pct(hits, Math.max(1, state.t))}%`;
+}
+
+function timelinePush(val, hit){
+  const t = el('div','tick'+(hit? ' hit':' fault'));
+  t.innerHTML = `<strong>${val}</strong><span class="sub">${hit? 'hit':'fault'}</span>`;
+  $('#timeline').appendChild(t);
+  // persist snapshot of frames (nulls included)
+  state.events.push({t: state.t, page: val, hit: !!hit, frames: [...state.arr]});
+}
+
+// Replacement helpers
+function chooseVictimLRU(history, arr, t){
+  let victimIdx = 0; let oldest = Infinity;
+  arr.forEach((p,idx)=>{
+    const last = history.get(p) ?? -Infinity;
+    if(last < oldest){ oldest = last; victimIdx = idx; }
+  });
+  return victimIdx;
+}
+function chooseVictimOPT(refs, arr, t){
+  // Use per-run cache to avoid repeated scans
+  const cache = stepPaging.optCache || new Map();
+  let victimIdx = 0; let farthest = -1;
+  arr.forEach((p,idx)=>{
+    const key = `${p}@${t}`;
+    let nextUse;
+    if(cache.has(key)) nextUse = cache.get(key);
+    else {
+      nextUse = Infinity;
+      for(let i=t+1;i<refs.length;i++){ if(refs[i]===p){ nextUse=i; break; } }
+      cache.set(key, nextUse);
+    }
+    if(nextUse===Infinity){ victimIdx = idx; farthest = nextUse; }
+    else if(nextUse>farthest){ farthest = nextUse; victimIdx = idx; }
+  });
+  return victimIdx;
+}
+function chooseVictimFIFO(order){
+  return order[0];
+}
+function chooseVictimCLOCK(arr){
+  const bits = stepPaging.clockBits; let ptr = stepPaging.clockPtr;
+  while(true){
+    if(arr[ptr]===null){ const out = ptr; stepPaging.clockPtr = (ptr+1)%arr.length; return out; }
+    if(bits[ptr]===0){ const out = ptr; stepPaging.clockPtr = (ptr+1)%arr.length; return out; }
+    bits[ptr]=0; ptr = (ptr+1)%arr.length;
+  }
+}
+function chooseVictimLFU(arr){
+  let victimIdx = 0; let best = {freq: Infinity, last: Infinity};
+  arr.forEach((p,idx)=>{
+    const freq = stepPaging.freq.get(p) ?? 0;
+    const last = stepPaging.history.get(p) ?? Infinity;
+    if(freq < best.freq || (freq===best.freq && last<best.last)){
+      best = {freq,last}; victimIdx = idx;
+    }
+  });
+  return victimIdx;
+}
+
+async function stepPaging(){
+  if(state.t>=state.refs.length){ clearInterval(state.timer); state.paused = true; return; }
+  const page = state.refs[state.t];
+  const framesEl = $('#framesView').children;
+  // hit?
+  let idx = state.arr.indexOf(page);
+  if(idx!==-1){
+    state.hits++;
+    if(stepPaging.clockBits) stepPaging.clockBits[idx]=1;
+    stepPaging.freq.set(page, (stepPaging.freq.get(page)||0)+1);
+    framesEl[idx].classList.add('hit'); framesEl[idx].classList.remove('fault');
+    timelinePush(page,true);
+  } else {
+    // page fault
+    state.pageFaults++;
+    // empty slot?
+    let empty = state.arr.indexOf(null);
+    if(empty!==-1){ idx = empty; }
+    else {
+      if(state.algo==='LRU') idx = chooseVictimLRU(stepPaging.history, state.arr, state.t);
+      else if(state.algo==='OPT') idx = chooseVictimOPT(state.refs, state.arr, state.t);
+      else if(state.algo==='FIFO') idx = stepPaging.order[0];
+      else if(state.algo==='CLOCK') idx = chooseVictimCLOCK(state.arr);
+      else if(state.algo==='LFU') idx = chooseVictimLFU(state.arr);
+    }
+    const evicted = state.arr[idx];
+    state.arr[idx] = page;
+    // FIFO bookkeeping
+    if(state.algo==='FIFO'){
+      const pos = stepPaging.order.indexOf(idx);
+      if(pos!==-1) stepPaging.order.splice(pos,1);
+      stepPaging.order.push(idx);
+    }
+    if(state.algo==='CLOCK'){
+      stepPaging.clockBits[idx]=0;
+    }
+    stepPaging.freq.set(page, (stepPaging.freq.get(page)||0)+1);
+
+    framesEl[idx].classList.add('fault'); framesEl[idx].classList.remove('hit');
+    framesEl[idx].textContent = String(page);
+    if(evicted===null){ /* first time fill */ }
+    timelinePush(page,false);
+  }
+  // LRU bookkeeping
+  stepPaging.history.set(page, state.t);
+  // preload simulation note: prefill is done before running
+  // update visuals for all frames
+  for(let i=0;i<state.arr.length;i++){
+    const val = state.arr[i];
+    framesEl[i].textContent = (val===null)? '—' : String(val);
+    if(i!==idx){ framesEl[i].classList.remove('hit','fault'); }
+  }
+
+  // LFU aging: simple decay every 50 steps to avoid forever-stuck pages
+  if(state.t>0 && state.t % 50 === 0){
+    for(const [p,f] of stepPaging.freq.entries()){
+      stepPaging.freq.set(p, Math.max(1, Math.floor(f * 0.9)));
+    }
+  }
+
+  updateMetrics();
+  state.t++;
+}
+stepPaging.history = new Map();
+stepPaging.order = []; // for FIFO: array of frame indexes oldest->newest
+stepPaging.freq = new Map();
+stepPaging.clockBits = [];
+stepPaging.clockPtr = 0;
+stepPaging.optCache = new Map();
+
+function runPagingLoop(){
+  clearInterval(state.timer); state.paused=false;
+  const delay = clamp(parseInt($('#delay').value||0,10),0,2000);
+  state.timer = setInterval(stepPaging, delay);
+}
+
+// Re-render frames and metrics (used by undo)
+function renderFramesAndMetrics(){
+  const framesEl = $('#framesView').children;
+  for(let i=0;i<state.arr.length;i++){
+    framesEl[i].textContent = (state.arr[i]===null)? '—' : String(state.arr[i]);
+    framesEl[i].classList.remove('hit','fault');
+  }
+  // rebuild timeline DOM from events
+  const timeline = $('#timeline'); timeline.innerHTML = '';
+  for(const ev of state.events){
+    const t = el('div','tick'+(ev.hit? ' hit':' fault'));
+    t.innerHTML = `<strong>${ev.page}</strong><span class="sub">${ev.hit? 'hit':'fault'}</span>`;
+    timeline.appendChild(t);
+  }
+  updateMetrics();
+}
+
+// UI hooks
+$('#runBtn').addEventListener('click', ()=> {
+  state.refs = parseRefs($('#refString').value);
+  state.frames = clamp(parseInt($('#frames').value,10)||3,1,50);
+  state.algo = $('#algo').value;
+  state.preload = clamp(parseInt($('#preload').value,10)||0,0,state.frames);
+  resetPaging();
+  // Preload first N unique pages without counting (illustrative only)
+  const seen = new Set(); let filled=0;
+  for(let i=0;i<state.refs.length && filled<state.preload;i++){
+    const p = state.refs[i]; if(!seen.has(p)){ seen.add(p); state.arr[filled]=p; filled++; }
+  }
+  // reflect preload
+  const framesEl = $('#framesView').children; for(let i=0;i<state.arr.length;i++){ framesEl[i].textContent = state.arr[i]??'—'; }
+  // init FIFO order: frames in the order they were filled (oldest->newest)
+  stepPaging.order = [];
+  for(let i=0;i<state.arr.length;i++){
+    if(state.arr[i] !== null) stepPaging.order.push(i);
+  }
+  for(let i=0;i<state.arr.length;i++){
+    if(!stepPaging.order.includes(i)) stepPaging.order.push(i);
+  }
+  stepPaging.history = new Map();
+  stepPaging.freq = new Map();
+  stepPaging.clockBits = Array(state.frames).fill(0);
+  stepPaging.clockPtr = 0;
+  stepPaging.optCache = new Map();
+  runPagingLoop();
+});
+$('#stepBtn').addEventListener('click', ()=>{ if(state.paused){ stepPaging(); } else { clearInterval(state.timer); state.paused=true; stepPaging(); }});
+$('#pauseBtn').addEventListener('click', ()=>{ clearInterval(state.timer); state.paused=true; });
+$('#resetBtn').addEventListener('click', ()=>{ clearInterval(state.timer); state.paused=true; resetPaging(); });
+
+// Back / undo button: remove last event and restore previous frame snapshot
+$('#backBtn').addEventListener('click', ()=>{
+  if(!state.events.length) return;
+  state.events.pop(); // remove last
+  // restore state.t and frames to previous snapshot (or empty)
+  if(state.events.length){
+    const last = state.events[state.events.length-1];
+    state.t = last.t + 1; // since last.t was index of that event; set t to next index
+    state.arr = last.frames.slice();
+  } else {
+    state.t = 0;
+    state.arr = Array(state.frames).fill(null);
+  }
+  // recompute hits/faults from remaining events
+  state.pageFaults = state.events.filter(e=>!e.hit).length;
+  state.hits = state.events.filter(e=>e.hit).length;
+  renderFramesAndMetrics();
+});
+
+// Compare Algorithms (fast, no animation)
+function simulateAlgo(algo){
+  const refs = [...state.refs]; const frames = state.frames;
+  const arr = Array(frames).fill(null);
+  let faults=0, hits=0, order=[...arr.keys()], history=new Map(), freq=new Map(), bits=Array(frames).fill(0), ptr=0;
+  for(let t=0;t<refs.length;t++){
+    const p = refs[t]; let idx = arr.indexOf(p);
+    if(idx!==-1){ hits++; if(algo==='CLOCK') bits[idx]=1; freq.set(p,(freq.get(p)||0)+1); history.set(p,t); continue; }
+    faults++;
+    let place = arr.indexOf(null);
+    if(place===-1){
+      if(algo==='LRU'){
+        let old=Infinity, vi=0; arr.forEach((q,i)=>{ const last=history.get(q)??-Infinity; if(last<old){old=last;vi=i;} }); place=vi;
+      } else if(algo==='OPT'){
+        let far=-1, vi=0; arr.forEach((q,i)=>{ let next=Infinity; for(let j=t+1;j<refs.length;j++){ if(refs[j]===q){ next=j; break; } } if(next>far){far=next; vi=i;} }); place=vi;
+      } else if(algo==='FIFO'){
+        place = order[0];
+      } else if(algo==='CLOCK'){
+        while(true){ if(arr[ptr]===null||bits[ptr]===0){ place=ptr; ptr=(ptr+1)%frames; break;} bits[ptr]=0; ptr=(ptr+1)%frames; }
+      } else if(algo==='LFU'){
+        let vi=0, best={f:Infinity,l:Infinity}; arr.forEach((q,i)=>{ const f=freq.get(q)||0; const l=history.get(q)||Infinity; if(f<best.f || (f===best.f&&l<best.l)){ best={f,l}; vi=i; } }); place=vi;
+      }
+    }
+    const ev = arr[place]; arr[place]=p; if(algo==='FIFO'){ const k=order.indexOf(place); if(k!==-1) order.splice(k,1); order.push(place);} if(algo==='CLOCK'){ bits[place]=0; }
+    freq.set(p,(freq.get(p)||0)+1); history.set(p,t);
+  }
+  return {algo, faults, hits, hitRate: refs.length? Math.round(hits*100/refs.length):0};
+}
+$('#compareBtn').addEventListener('click', ()=>{
+  if(!state.refs.length){ state.refs = parseRefs($('#refString').value); }
+  const algos=['LRU','FIFO','OPT','CLOCK','LFU'];
+  const results = algos.map(a=>simulateAlgo(a));
+  $('#compareOut').innerHTML = `<div class="grid">${results.map(r=>`<div class=\"metric\"><div class=\"k\">${r.algo}</div><div class=\"v\">Faults: ${r.faults}</div><div class=\"k\">Hit Rate</div><div class=\"v\">${r.hitRate}%</div></div>`).join('')}</div>`;
+});
+
+function exportCSV(){
+  if(!state.events.length){ alert('Run the simulator first to generate events.'); return; }
+  const rows = [['t','page','hit','frames']].concat(
+    state.events.map(e=>[e.t, e.page, e.hit?1:0, `[${e.frames.map(x=>x===null?'-':x).join(' ')}]`])
+  );
+  const csv = rows.map(r => r.map(x => `"${String(x).replace(/\"/g,'\"\"')}"`).join(',')).join('\n');
+  const blob = new Blob([csv], {type:'text/csv'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = 'paging_timeline.csv'; a.click();
+  // revoke after short delay so browser can start download
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+$('#exportBtn').addEventListener('click', exportCSV);
+
+// Initialize visuals on load
+(function init(){
+  $('#refString').value = '7, 0, 1, 2, 0, 3, 0, 4, 2, 3, 0, 3, 2';
+  resetPaging();
+  // run unit tests silently in console
+  runSelfTests();
+})();
+
+/***********************
+ * Segmentation Simulator
+ ***********************/
+const seg = {
+  sizeKB: 1024,
+  blocks: [], // {start,lenKB,free:true,name?:string}
+  selected: null,
+  policy:'first'
+};
+
+function initSeg(){
+  seg.sizeKB = clamp(parseInt($('#memSize').value,10)||1024,64,65536);
+  seg.blocks = [{start:0,lenKB:seg.sizeKB,free:true}];
+  seg.selected = null; seg.policy = $('#policy').value;
+  renderSeg();
+}
+
+function splitBlock(b, needKB, name){
+  const idx = seg.blocks.indexOf(b);
+  const used = {start:b.start,lenKB:needKB,free:false,name};
+  const remain = b.lenKB-needKB;
+  if(remain>0){
+    seg.blocks.splice(idx,1, used, {start:b.start+needKB,lenKB:remain,free:true});
+  } else {
+    seg.blocks.splice(idx,1, used);
+  }
+}
+
+function mergeAdj(){
+  for(let i=0;i<seg.blocks.length-1;){
+    const a = seg.blocks[i], b = seg.blocks[i+1];
+    if(a.free && b.free){ a.lenKB += b.lenKB; seg.blocks.splice(i+1,1); }
+    else i++;
+  }
+}
+
+function allocateSegments(){
+  const lines = $('#segments').value.split(/\n+/).map(s=>s.trim()).filter(Boolean);
+  const reqs = [];
+  const badLines = [];
+  for(const line of lines){
+    const m = line.match(/^([^:]+):(\d+)$/);
+    if(!m){ badLines.push(line); continue; }
+    const name = m[1].trim();
+    reqs.push({name, size:parseInt(m[2],10)});
+  }
+  if(badLines.length){
+    alert(`These lines are invalid and will be skipped:\n\n${badLines.join('\n')}\n\nUse format: name:size (integer KB).`);
+  }
+  // simple allocator per policy
+  for(const r of reqs){
+    let candidates = seg.blocks
+      .map((b,idx)=>({...b,idx}))
+      .filter(b=>b.free && b.lenKB>=r.size);
+    if(candidates.length===0){
+      // cannot allocate -> external fragmentation likely
+      continue;
+    }
+    if(seg.policy==='best') candidates.sort((a,b)=>a.lenKB-b.lenKB);
+    else if(seg.policy==='worst') candidates.sort((a,b)=>b.lenKB-a.lenKB);
+    // first-fit is natural order
+    const target = candidates[0];
+    splitBlock(seg.blocks[target.idx], r.size, r.name);
+    mergeAdj();
+  }
+  renderSeg();
+}
+
+function freeSelected(){
+  const idx = seg.selected; if(idx===null) return; const b = seg.blocks[idx];
+  if(!b || b.free) return;
+  b.free = true; delete b.name; mergeAdj(); renderSeg();
+}
+
+function clearSeg(){ initSeg(); $('#segments').value=''; }
+
+function computeFrag(){
+  const freeBlocks = seg.blocks.filter(b=>b.free);
+  const totalFree = freeBlocks.reduce((s,b)=>s+b.lenKB,0);
+  const largest = freeBlocks.reduce((m,b)=>Math.max(m,b.lenKB),0);
+  return { external: totalFree - largest, largest, allocated: seg.blocks.filter(b=>!b.free).reduce((s,b)=>s+b.lenKB,0)};
+}
+
+function renderSeg(){
+  const memBar = $('#memBar'); memBar.innerHTML='';
+  const scale = (len)=> (len/seg.sizeKB)*100; // % height
+  seg.blocks.sort((a,b)=>a.start-b.start);
+  // Draw blocks
+  for(let i=0;i<seg.blocks.length;i++){
+    const b = seg.blocks[i];
+    const div = el('div','block '+(b.free?'free':'used'));
+    div.style.top = scale(b.start)+"%"; div.style.height = scale(b.lenKB)+"%";
+    div.innerHTML = b.free ? `<span>FREE</span><span>${b.lenKB} KB</span>` : `<span>${b.name}</span><span>${b.lenKB} KB</span>`;
+    div.addEventListener('click',()=>{ seg.selected=i; document.querySelectorAll('.block').forEach(n=>n.style.outline=''); div.style.outline='2px solid var(--accent)'; });
+    memBar.appendChild(div);
+  }
+  // List blocks
+  const segList = $('#segList'); segList.innerHTML='';
+  seg.blocks.forEach((b,i)=>{
+    const row = el('div','metric');
+    row.innerHTML = `<div class="k">${b.free? 'Free block':'Segment'}</div><div class="v">${b.free? '—': (b.name||'—')}</div><div class="k">Start</div><div class="v">${b.start} KB</div><div class="k">Length</div><div class="v">${b.lenKB} KB</div>`;
+    row.style.cursor='pointer';
+    row.addEventListener('click',()=>{ seg.selected=i; document.querySelectorAll('#segList .metric').forEach(n=>n.style.outline=''); row.style.outline='2px solid var(--accent)'; });
+    segList.appendChild(row);
+  });
+  const f = computeFrag();
+  $('#extFrag').textContent = f.external;
+  $('#largestFree').textContent = f.largest;
+  $('#allocSum').textContent = f.allocated;
+}
+
+$('#allocBtn').addEventListener('click',()=>{ seg.policy = $('#policy').value; allocateSegments();});
+$('#freeBtn').addEventListener('click',freeSelected);
+$('#clearSegBtn').addEventListener('click',clearSeg);
+$('#memSize').addEventListener('change',initSeg);
+$('#policy').addEventListener('change',()=>{ seg.policy = $('#policy').value; renderSeg(); });
+
+initSeg();
+
+/***********************
+ * Minimal Self Tests (console)
+ ***********************/
+function fifoFaults(refs, frames){
+  const arr = Array(frames).fill(null); let faults=0; const order=[...arr.keys()];
+  for(let t=0;t<refs.length;t++){
+    const p = refs[t]; let idx = arr.indexOf(p);
+    if(idx!==-1) continue; faults++;
+    let place = arr.indexOf(null); if(place===-1) place = order[0];
+    arr[place]=p; const k=order.indexOf(place); if(k!==-1) order.splice(k,1); order.push(place);
+  }
+  return faults;
+}
+function optFaults(refs, frames){
+  const arr = Array(frames).fill(null); let faults=0;
+  for(let t=0;t<refs.length;t++){
+    const p = refs[t]; let idx = arr.indexOf(p);
+    if(idx!==-1) continue; faults++;
+    let place = arr.indexOf(null);
+    if(place===-1){
+      let far=-1, vi=0; arr.forEach((q,i)=>{ let next=Infinity; for(let j=t+1;j<refs.length;j++){ if(refs[j]===q){ next=j; break; } } if(next>far){far=next; vi=i;} }); place=vi;
+    }
+    arr[place]=p;
+  }
+  return faults;
+}
+function runSelfTests(){
+  try{
+    const A = [7,0,1,2,0,3,0,4,2,3,0,3,2];
+    const f3_fifo = fifoFaults(A,3); const f3_opt = optFaults(A,3);
+    console.assert(f3_opt <= f3_fifo, 'OPT should be ≤ FIFO for same frames');
+    // Belady anomaly check sample
+    const B = [1,2,3,4,1,2,5,1,2,3,4,5];
+    const fifo3 = fifoFaults(B,3); const fifo4 = fifoFaults(B,4);
+    console.assert(fifo4 >= fifo3, 'FIFO(4) should be ≥ FIFO(3) in anomaly case');
+    console.log('Self-tests passed:', {f3_fifo, f3_opt, fifo3, fifo4});
+  } catch(e){ console.warn('Self-tests exception', e); }
+}
+
+/***********************
+ * Keyboard shortcuts
+ ***********************/
+document.addEventListener('keydown', (e) => {
+  if (e.code === 'Space') { e.preventDefault(); $('#stepBtn').click(); }
+  if ((e.ctrlKey || e.metaKey) && (e.key === 'r' || e.key === 'R')) { e.preventDefault(); $('#runBtn').click(); }
+});
+</script>
+</body>
+</html>
